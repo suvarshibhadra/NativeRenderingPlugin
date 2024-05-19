@@ -33,11 +33,11 @@
     <ClCompile Include="..\..\source\RenderAPI_D3D11.cpp" />
     <ClCompile Include="..\..\source\RenderAPI_OpenGLCoreES.cpp" />
     <ClCompile Include="..\..\source\RenderingPlugin.cpp" />
-    <ClCompile Include="..\..\source\RenderAPI_D3D12.cpp" />
     <ClCompile Include="..\..\source\RenderAPI_Vulkan.cpp" />
     <ClCompile Include="..\..\source\gl3w\gl3w.c">
       <Filter>gl3w</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\source\RenderAPI_VulkanDX11.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Unity">
@@ -50,8 +50,5 @@
   <ItemGroup>
     <None Include="..\..\source\RenderingPlugin.def" />
     <None Include="packages.config" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="..\..\source\RenderAPI_Metal.mm" />
   </ItemGroup>
 </Project>

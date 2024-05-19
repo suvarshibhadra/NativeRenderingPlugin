@@ -34,25 +34,17 @@
     <ClCompile Include="..\..\source\gl3w\gl3w.c" />
     <ClCompile Include="..\..\source\RenderAPI.cpp" />
     <ClCompile Include="..\..\source\RenderAPI_D3D11.cpp" />
-    <ClCompile Include="..\..\source\RenderAPI_D3D12.cpp" />
     <ClCompile Include="..\..\source\RenderAPI_OpenGLCoreES.cpp" />
     <ClCompile Include="..\..\source\RenderAPI_Vulkan.cpp">
       <AdditionalIncludeDirectories>$(VULKAN_SDK)\Include</AdditionalIncludeDirectories>
       <AdditionalIncludeDirectories>$(VULKAN_SDK)\Include</AdditionalIncludeDirectories>
     </ClCompile>
+    <ClCompile Include="..\..\source\RenderAPI_VulkanDX11.cpp" />
     <ClCompile Include="..\..\source\RenderingPlugin.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\source\RenderingPlugin.def" />
     <None Include="packages.config" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="..\..\source\RenderAPI_Metal.mm">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
-    </None>
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{F7CFEF5A-54BD-42E8-A59E-54ABAEB4EA9C}</ProjectGuid>
@@ -159,6 +151,8 @@ ENDLOCAL
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <OmitFramePointers>true</OmitFramePointers>
+      <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
+      <AdditionalIncludeDirectories>C:\VulkanSDK\1.3.211.0\Include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <AdditionalDependencies>opengl32.lib;d3d12.lib</AdditionalDependencies>
