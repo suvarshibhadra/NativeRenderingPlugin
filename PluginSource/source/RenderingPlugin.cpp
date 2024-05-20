@@ -2,6 +2,7 @@
 
 #include "PlatformBase.h"
 #include "RenderAPI.h"
+#include "VulkanHelperRenderAPI.h"
 
 #include <assert.h>
 #include <math.h>
@@ -24,13 +25,18 @@ extern "C" void	UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginLoad(IUnit
 	s_Graphics = s_UnityInterfaces->Get<IUnityGraphics>();
 	s_Graphics->RegisterDeviceEventCallback(OnGraphicsDeviceEvent);
 
+	/*
+	// Not nessary since I'm not going to hook to anything
 #if SUPPORT_VULKAN
 	if (s_Graphics->GetRenderer() == kUnityGfxRendererNull)
 	{
+		// This stores the address of vkGetInstanceProcAddr
+		// Calls UnityVulkanInterface->InterceptInitialization with hook fn ptr
 		extern void RenderAPI_Vulkan_OnPluginLoad(IUnityInterfaces*);
 		RenderAPI_Vulkan_OnPluginLoad(unityInterfaces);
 	}
 #endif // SUPPORT_VULKAN
+*/
 
 	// Run OnGraphicsDeviceEvent(initialize) manually on plugin load
 	OnGraphicsDeviceEvent(kUnityGfxDeviceEventInitialize);
@@ -47,7 +53,8 @@ extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload()
 // GraphicsDeviceEvent
 
 
-static RenderAPI* s_CurrentAPI = NULL;
+static RenderAPI* s_DX11_API = NULL;
+static VulkanHelperRenderAPI* s_VulkanHelperAPI = NULL;
 static UnityGfxRenderer s_DeviceType = kUnityGfxRendererNull;
 extern RenderAPI* CreateRenderAPI_D3D11();
 
@@ -59,26 +66,39 @@ static void UNITY_INTERFACE_API OnGraphicsDeviceEvent(UnityGfxDeviceEventType ev
 	// Create graphics API implementation upon initialization
 	if (eventType == kUnityGfxDeviceEventInitialize)
 	{
-		assert(s_CurrentAPI == NULL);
+		assert(s_DX11_API == NULL);
 		s_DeviceType = s_Graphics->GetRenderer();
 		assert(s_DeviceType == kUnityGfxRendererD3D11);
 				
-		//s_CurrentAPI = CreateRenderAPI(kUnityGfxRendererD3D11);
-		s_CurrentAPI = CreateRenderAPI_D3D11();
+		s_DX11_API = CreateRenderAPI_D3D11();
+		s_VulkanHelperAPI = CreateRenderAPI_VulkanDX11();
+
+		{ // Load Library and Create Vulkan Instance
+			s_VulkanHelperAPI->LoadVulkanSharedLibrary();
+			s_VulkanHelperAPI->CreateVulkanInstance();
+			// Vulkan Fn Pts and Device Creation in ProcessDeviceEvent(Init)
+		}
+
 	}
 
 	// Let the implementation process the device related events
-	if (s_CurrentAPI)
-	{
-		s_CurrentAPI->ProcessDeviceEvent(eventType, s_UnityInterfaces);
+	if (s_DX11_API)	{
+		s_DX11_API->ProcessDeviceEvent(eventType, s_UnityInterfaces);
+	}
+
+	if (s_VulkanHelperAPI)	{
+		s_VulkanHelperAPI->ProcessDeviceEvent(eventType, s_UnityInterfaces);
 	}
 
 	// Cleanup graphics API implementation upon shutdown
 	if (eventType == kUnityGfxDeviceEventShutdown)
 	{
-		delete s_CurrentAPI;
-		s_CurrentAPI = NULL;
+		delete s_DX11_API;
+		s_DX11_API = NULL;
 		s_DeviceType = kUnityGfxRendererNull;
+
+		delete s_VulkanHelperAPI;
+		s_VulkanHelperAPI = NULL;
 	}
 }
 
@@ -92,7 +112,7 @@ static void drawToPluginTexture();
 static void UNITY_INTERFACE_API OnRenderEvent(int eventID)
 {
 	// Unknown / unsupported graphics device type? Do nothing
-	if (s_CurrentAPI == NULL)
+	if (s_DX11_API == NULL)
 		return;
 
 	if (eventID == 1)
@@ -216,7 +236,7 @@ static void DrawColoredTriangle()
 	float cosPhi = cosf(phi);
 	float sinPhi = sinf(phi);
 	float depth = 0.7f;
-	float finalDepth = s_CurrentAPI->GetUsesReverseZ() ? 1.0f - depth : depth;
+	float finalDepth = s_DX11_API->GetUsesReverseZ() ? 1.0f - depth : depth;
 	float worldMatrix[16] = {
 		cosPhi,-sinPhi,0,0,
 		sinPhi,cosPhi,0,0,
@@ -224,7 +244,7 @@ static void DrawColoredTriangle()
 		0,0,finalDepth,1,
 	};
 
-	s_CurrentAPI->DrawSimpleTriangles(worldMatrix, 1, verts);
+	s_DX11_API->DrawSimpleTriangles(worldMatrix, 1, verts);
 }
 
 
@@ -237,7 +257,7 @@ static void ModifyTexturePixels()
 		return;
 
 	int textureRowPitch;
-	void* textureDataPtr = s_CurrentAPI->BeginModifyTexture(textureHandle, width, height, &textureRowPitch);
+	void* textureDataPtr = s_DX11_API->BeginModifyTexture(textureHandle, width, height, &textureRowPitch);
 	if (!textureDataPtr)
 		return;
 
@@ -271,7 +291,7 @@ static void ModifyTexturePixels()
 		dst += textureRowPitch;
 	}
 
-	s_CurrentAPI->EndModifyTexture(textureHandle, width, height, textureRowPitch, textureDataPtr);
+	s_DX11_API->EndModifyTexture(textureHandle, width, height, textureRowPitch, textureDataPtr);
 }
 
 
@@ -283,7 +303,7 @@ static void ModifyVertexBuffer()
 		return;
 
 	size_t bufferSize;
-	void* bufferDataPtr = s_CurrentAPI->BeginModifyVertexBuffer(bufferHandle, &bufferSize);
+	void* bufferDataPtr = s_DX11_API->BeginModifyVertexBuffer(bufferHandle, &bufferSize);
 	if (!bufferDataPtr)
 		return;
 	int vertexStride = int(bufferSize / vertexCount);
@@ -315,16 +335,16 @@ static void ModifyVertexBuffer()
 		bufferPtr += vertexStride;
 	}
 
-	s_CurrentAPI->EndModifyVertexBuffer(bufferHandle);
+	s_DX11_API->EndModifyVertexBuffer(bufferHandle);
 }
 
 static void drawToPluginTexture()
 {
-	s_CurrentAPI->drawToPluginTexture();
+	s_DX11_API->drawToPluginTexture();
 }
 
 static void drawToRenderTexture()
 {
-	s_CurrentAPI->drawToRenderTexture();
+	s_DX11_API->drawToRenderTexture();
 }
 

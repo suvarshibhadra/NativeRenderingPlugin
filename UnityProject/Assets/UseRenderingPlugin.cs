@@ -83,6 +83,7 @@ public class UseRenderingPlugin : MonoBehaviour
     {
         renderTex = new RenderTexture(256, 256, 16, RenderTextureFormat.ARGB32);
         renderTex.Create();
+        // Only for the color attachment set the renderBufferPtr
         IntPtr nativeBufPTr = renderTex.colorBuffer.GetNativeRenderBufferPtr();
         SetRenderTexture(nativeBufPTr);
         GameObject sphere = GameObject.Find("Sphere");
@@ -101,7 +102,7 @@ public class UseRenderingPlugin : MonoBehaviour
         RegisterPlugin();
 #endif
 
-        if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12)
+        if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D11)
         {
             CreateRenderTexture();
         }
@@ -113,7 +114,7 @@ public class UseRenderingPlugin : MonoBehaviour
 
     void OnDisable()
     {
-        if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12)
+        if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D11)
         {
             // Signals the plugin that renderTex will be destroyed
             SetRenderTexture(IntPtr.Zero);

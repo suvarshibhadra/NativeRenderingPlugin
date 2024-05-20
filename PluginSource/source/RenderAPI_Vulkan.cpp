@@ -478,6 +478,7 @@ RenderAPI* CreateRenderAPI_Vulkan()
 
 RenderAPI_Vulkan::RenderAPI_Vulkan()
     : m_UnityVulkan(NULL)
+	, m_Instance()
     , m_TextureStagingBuffer()
     , m_VertexStagingBuffer()
     , m_TrianglePipelineLayout(VK_NULL_HANDLE)
