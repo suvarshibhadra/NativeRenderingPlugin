@@ -14,8 +14,14 @@
 #include <math.h>
 
 // This plugin does not link to the Vulkan loader, easier to support multiple APIs and systems that don't have Vulkan support
-#define VK_NO_PROTOTYPES
+#define VK_NO_PROTOTYPES // structs will get defined but methods wont
 #include "Unity/IUnityGraphicsVulkan.h"
+
+#if defined(_WIN32)
+#include <vulkan/vulkan_win32.h>
+#include <windows.h>
+#endif
+
 
 #define UNITY_USED_VULKAN_API_FUNCTIONS(apply) \
     apply(vkCreateInstance); \
@@ -25,13 +31,18 @@
     apply(vkGetPhysicalDeviceQueueFamilyProperties); \
     apply(vkEnumerateDeviceExtensionProperties); \
     apply(vkCreateDevice); \
+    apply(vkGetPhysicalDeviceImageFormatProperties2); \
+    apply(vkCreateImage); \
+    apply(vkGetImageMemoryRequirements); \
+	apply(vkAllocateMemory); \
+	apply(vkBindImageMemory); \
+    apply(vkGetMemoryWin32HandleKHR); \
     apply(vkCmdBeginRenderPass); \
     apply(vkCreateBuffer); \
     apply(vkGetPhysicalDeviceMemoryProperties); \
     apply(vkGetBufferMemoryRequirements); \
     apply(vkMapMemory); \
     apply(vkBindBufferMemory); \
-    apply(vkAllocateMemory); \
     apply(vkDestroyBuffer); \
     apply(vkFreeMemory); \
     apply(vkUnmapMemory); \
@@ -49,11 +60,15 @@
     apply(vkCmdBindVertexBuffers); \
     apply(vkDestroyPipeline); \
     apply(vkDestroyPipelineLayout);
-    
+
 #define VULKAN_DEFINE_API_FUNCPTR(func) static PFN_##func func
 VULKAN_DEFINE_API_FUNCPTR(vkGetInstanceProcAddr);
 UNITY_USED_VULKAN_API_FUNCTIONS(VULKAN_DEFINE_API_FUNCPTR);
 #undef VULKAN_DEFINE_API_FUNCPTR
+
+
+
+
 
 static void LoadVulkanAPI(PFN_vkGetInstanceProcAddr getInstanceProcAddr, VkInstance instance)
 {
@@ -66,6 +81,11 @@ static void LoadVulkanAPI(PFN_vkGetInstanceProcAddr getInstanceProcAddr, VkInsta
     UNITY_USED_VULKAN_API_FUNCTIONS(LOAD_VULKAN_FUNC);
 #undef LOAD_VULKAN_FUNC
 }
+
+#if defined(_WIN32)
+
+#endif
+
 
 /*
 static VKAPI_ATTR void VKAPI_CALL Hook_vkCmdBeginRenderPass(VkCommandBuffer commandBuffer, const VkRenderPassBeginInfo* pRenderPassBegin, VkSubpassContents contents)
@@ -228,7 +248,7 @@ void VulkanHelperRenderAPI::CreateVulkanInstance()
     instanceCreateInfo.pApplicationInfo = &appInfo;
 
     // Specify Instance Extensions
-    std::vector<const char*> instanceExtensions = { VK_KHR_SURFACE_EXTENSION_NAME };
+    std::vector<const char*> instanceExtensions = { VK_KHR_SURFACE_EXTENSION_NAME, "VK_KHR_get_physical_device_properties2", "VK_KHR_external_memory_capabilities", "VK_KHR_external_semaphore_capabilities", "VK_KHR_external_fence_capabilities" };
 #if defined(_WIN32)
     instanceExtensions.push_back("VK_KHR_win32_surface");
 #elif defined(VK_USE_PLATFORM_ANDROID_KHR)
@@ -289,13 +309,20 @@ bool EnumerateAvailablePhysicalDevices(VkInstance instance,
 
 void VulkanHelperRenderAPI::CreateVulkanDevice()
 {
-    VkPhysicalDevice selectedPhysicalDevice;
+    VkPhysicalDevice selectedPhysicalDevice = {};
     int gfxQueueFamilyIndexOfSelectedDevice = -1;
 
     std::vector<VkPhysicalDevice> available_devices = {};
     EnumerateAvailablePhysicalDevices(s_vkInstance, available_devices);
 
-    std::vector<const char *> desiredDeviceExtensions = {};
+    std::vector<const char *> desiredDeviceExtensions = {"VK_KHR_external_memory"};
+
+#if defined(_WIN32)
+    desiredDeviceExtensions.emplace_back("VK_KHR_external_memory_win32");
+    desiredDeviceExtensions.emplace_back("VK_KHR_external_semaphore_win32");
+    desiredDeviceExtensions.emplace_back("VK_KHR_external_fence_win32");
+#endif
+
 
     for (auto& physicalDevice : available_devices) {
 
@@ -388,6 +415,113 @@ void VulkanHelperRenderAPI::CreateVulkanDevice()
         s_vkPhysicalDevice = selectedPhysicalDevice;
 }
 
+uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, VkPhysicalDevice physicalDevice) {
+    VkPhysicalDeviceMemoryProperties memProperties;
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+        if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            return i;
+        }
+    }
+
+    throw std::runtime_error("failed to find suitable memory type!");
+}
+
+
+void VulkanHelperRenderAPI::CreateVulkanImage()
+{
+    // Get Image Format Properties supported by Physical Device
+    VkPhysicalDeviceExternalImageFormatInfo externalImageFormatInfo = {};
+    externalImageFormatInfo.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO;
+    externalImageFormatInfo.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHR;
+
+    VkPhysicalDeviceImageFormatInfo2 imageFormatInfo = {};
+    imageFormatInfo.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2;
+    imageFormatInfo.pNext = &externalImageFormatInfo;
+    imageFormatInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    imageFormatInfo.type = VK_IMAGE_TYPE_2D;
+    imageFormatInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageFormatInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    imageFormatInfo.flags = 0;
+
+    VkExternalImageFormatProperties externalImageFormatProperties = {};
+    externalImageFormatProperties.sType = VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES;
+
+    VkImageFormatProperties2 imageFormatProperties = {};
+    imageFormatProperties.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
+    imageFormatProperties.pNext = &externalImageFormatProperties;
+
+    if (vkGetPhysicalDeviceImageFormatProperties2(s_vkPhysicalDevice, &imageFormatInfo, &imageFormatProperties) != VK_SUCCESS) {
+        // Handle the error (the requested format or external handle type is not supported)
+        printf("Error here");
+    } else {
+        printf("Set debug brkpt here to examine what is returned in imageFormateProperties and externalImageFormatProperties");
+    }
+
+
+	unsigned int width = 300;
+    unsigned int height = 300;
+
+    VkImageCreateInfo imageInfo = {};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    imageInfo.extent = { width, height, 1 };
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    // Enable external memory handle types
+    VkExternalMemoryImageCreateInfo externalMemoryImageInfo = {};
+    externalMemoryImageInfo.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+    // Note the handle type
+    externalMemoryImageInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHR;
+    imageInfo.pNext = &externalMemoryImageInfo;
+
+    VkImage image;
+    vkCreateImage(s_vkDevice, &imageInfo, nullptr, &image);
+
+    VkMemoryRequirements memRequirements;
+    vkGetImageMemoryRequirements(s_vkDevice, image, &memRequirements);
+
+    VkMemoryAllocateInfo allocInfo = {};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memRequirements.size;
+    allocInfo.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, s_vkPhysicalDevice);
+
+    // Enable export memory handle
+    VkExportMemoryAllocateInfo exportAllocInfo = {};
+    exportAllocInfo.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
+    exportAllocInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHR;
+    allocInfo.pNext = &exportAllocInfo;
+
+    VkDeviceMemory imageMemory;
+    vkAllocateMemory(s_vkDevice, &allocInfo, nullptr, &imageMemory);
+
+    vkBindImageMemory(s_vkDevice, image, imageMemory, 0);
+
+
+    VkMemoryGetWin32HandleInfoKHR getWin32HandleInfo = {};
+    getWin32HandleInfo.sType = VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR;
+    getWin32HandleInfo.memory = imageMemory;
+    getWin32HandleInfo.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+
+    HANDLE handle;
+    if (vkGetMemoryWin32HandleKHR(s_vkDevice, &getWin32HandleInfo, &handle) != VK_SUCCESS) {
+        std::cout << "Error in obtaining memory handle: ";
+    }
+
+    // You can now pass this handle to other processes or Vulkan instances/devices
+
+    std::cout << "Memory handle exported as Win32 handle: " << handle << std::endl;
+
+}
+
 
 VulkanHelperRenderAPI* CreateRenderAPI_VulkanDX11()
 {
@@ -406,6 +540,7 @@ RenderAPI_VulkanDX11::RenderAPI_VulkanDX11()
 {
 }
 
+
 void RenderAPI_VulkanDX11::ProcessDeviceEvent(UnityGfxDeviceEventType type, IUnityInterfaces* interfaces)
 {
     switch (type)
@@ -417,6 +552,10 @@ void RenderAPI_VulkanDX11::ProcessDeviceEvent(UnityGfxDeviceEventType type, IUni
 
         // Create Device
         CreateVulkanDevice();
+
+        // Create Vulkan Image
+        CreateVulkanImage();
+
 
         //UnityVulkanPluginEventConfig config_1;
         //config_1.graphicsQueueAccess = kUnityVulkanGraphicsQueueAccess_DontCare;

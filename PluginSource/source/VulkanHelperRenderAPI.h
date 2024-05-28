@@ -26,6 +26,7 @@ public:
 	virtual void CreateVulkanInstance();
 	virtual void LoadVulkanFnPtrs();
 	virtual void CreateVulkanDevice();
+	virtual void CreateVulkanImage();
 };
 
 
