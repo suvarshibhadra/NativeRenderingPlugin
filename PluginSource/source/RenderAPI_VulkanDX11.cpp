@@ -429,7 +429,7 @@ uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, V
 }
 
 
-void VulkanHelperRenderAPI::CreateVulkanImage()
+void VulkanHelperRenderAPI::CreateVulkanImage(unsigned int width, unsigned int height, HANDLE* handle)
 {
     // Get Image Format Properties supported by Physical Device
     VkPhysicalDeviceExternalImageFormatInfo externalImageFormatInfo = {};
@@ -459,9 +459,6 @@ void VulkanHelperRenderAPI::CreateVulkanImage()
         printf("Set debug brkpt here to examine what is returned in imageFormateProperties and externalImageFormatProperties");
     }
 
-
-	unsigned int width = 300;
-    unsigned int height = 300;
 
     VkImageCreateInfo imageInfo = {};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -511,8 +508,7 @@ void VulkanHelperRenderAPI::CreateVulkanImage()
     getWin32HandleInfo.memory = imageMemory;
     getWin32HandleInfo.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
 
-    HANDLE handle;
-    if (vkGetMemoryWin32HandleKHR(s_vkDevice, &getWin32HandleInfo, &handle) != VK_SUCCESS) {
+    if (vkGetMemoryWin32HandleKHR(s_vkDevice, &getWin32HandleInfo, handle) != VK_SUCCESS) {
         std::cout << "Error in obtaining memory handle: ";
     }
 
@@ -552,9 +548,6 @@ void RenderAPI_VulkanDX11::ProcessDeviceEvent(UnityGfxDeviceEventType type, IUni
 
         // Create Device
         CreateVulkanDevice();
-
-        // Create Vulkan Image
-        CreateVulkanImage();
 
 
         //UnityVulkanPluginEventConfig config_1;

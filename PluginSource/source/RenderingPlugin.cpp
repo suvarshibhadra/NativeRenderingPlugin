@@ -5,8 +5,17 @@
 #include "VulkanHelperRenderAPI.h"
 
 #include <assert.h>
+#include <d3d11.h>
 #include <math.h>
 #include <vector>
+
+#include "Unity/IUnityGraphicsD3D11.h"
+
+
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
 
 static void UNITY_INTERFACE_API OnGraphicsDeviceEvent(UnityGfxDeviceEventType eventType);
 static IUnityInterfaces* s_UnityInterfaces = NULL;
@@ -52,7 +61,7 @@ extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload()
 // --------------------------------------------------------------------------
 // GraphicsDeviceEvent
 
-
+static ID3D11Device* s_d3d11Device = nullptr;
 static RenderAPI* s_DX11_API = NULL;
 static VulkanHelperRenderAPI* s_VulkanHelperAPI = NULL;
 static UnityGfxRenderer s_DeviceType = kUnityGfxRendererNull;
@@ -69,6 +78,11 @@ static void UNITY_INTERFACE_API OnGraphicsDeviceEvent(UnityGfxDeviceEventType ev
 		assert(s_DX11_API == NULL);
 		s_DeviceType = s_Graphics->GetRenderer();
 		assert(s_DeviceType == kUnityGfxRendererD3D11);
+
+		// Store the D3D11 Device
+		if (IUnityGraphicsD3D11* d3d11Interface = s_UnityInterfaces->Get<IUnityGraphicsD3D11>()){
+			s_d3d11Device = d3d11Interface->GetDevice();
+		}
 				
 		s_DX11_API = CreateRenderAPI_D3D11();
 		s_VulkanHelperAPI = CreateRenderAPI_VulkanDX11();
@@ -136,12 +150,8 @@ extern "C" UnityRenderingEvent UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API GetRen
 	return OnRenderEvent;
 }
 
-
-// Example function of something called from Unity
 static float g_Time;
-extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API SetTimeFromUnity (float t) { g_Time = t; }
-
-
+extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API SetTimeFromUnity(float t) { g_Time = t; }
 
 // --------------------------------------------------------------------------
 // SetTextureFromUnity, an example function we export which is called by one of the scripts.
@@ -158,6 +168,34 @@ extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API SetTextureFromUnity(v
 	g_TextureHandle = textureHandle;
 	g_TextureWidth = w;
 	g_TextureHeight = h;
+}
+
+extern "C" __declspec(dllexport) void* CreateVkImageForUnityRenderTexture(void* renderTextureColorBufferHandle, int w, int h)
+//extern "C" void* UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API CreateRenderTextureImageForUnity(int w, int h)
+{
+
+	#if defined(_WIN32)
+	HANDLE nativeHandle;
+	if(s_VulkanHelperAPI) {
+		s_VulkanHelperAPI->CreateVulkanImage(w, h, &nativeHandle);
+
+		ID3D11Texture2D* d3d11Texture = nullptr;
+		HRESULT hr = s_d3d11Device->OpenSharedResource(nativeHandle, __uuidof(ID3D11Texture2D), (void**)&d3d11Texture);
+
+		if (FAILED(hr)) {
+			printf("Unable to open native handle from D3D11 device");
+			// Handle error
+			return 0;
+		}
+
+		// Need to pass the D3D11 Handle to Texture2.CreateExternalTexture
+
+		// Then Graphics.Blit from Texture2D to RenderTexture in Unity.
+
+	}
+	return nativeHandle;
+#endif
+
 }
 
 

@@ -76,6 +76,9 @@ public class UseRenderingPlugin : MonoBehaviour
     [DllImport("RenderingPlugin")]
     private static extern uint GetBackBufferHeight();
 
+    [DllImport("RenderingPlugin")]
+    private static extern IntPtr CreateVkImageForUnityRenderTexture(IntPtr renderTextureColorBuffer, int width, int height);
+
     private static RenderTexture renderTex;
     private static GameObject pluginInfo;
 
@@ -102,10 +105,17 @@ public class UseRenderingPlugin : MonoBehaviour
         RegisterPlugin();
 #endif
 
+        /*
         if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D11)
         {
             CreateRenderTexture();
         }
+        */
+
+        if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D11) {
+            CreateRenderTextureWithVulkanCreatedImage();
+        }
+
 
         CreateTextureAndPassToPlugin();
         SendMeshBuffersToPlugin();
@@ -135,6 +145,19 @@ public class UseRenderingPlugin : MonoBehaviour
 
         // Pass texture pointer to the plugin
         SetTextureFromUnity(tex.GetNativeTexturePtr(), tex.width, tex.height);
+    }
+
+    private void CreateRenderTextureWithVulkanCreatedImage() {
+
+        renderTex = new RenderTexture(256, 256, 16, RenderTextureFormat.ARGB32);
+        renderTex.Create();
+        IntPtr nativeBufPTr = renderTex.colorBuffer.GetNativeRenderBufferPtr();
+        IntPtr vulkanCreatedImage = CreateVkImageForUnityRenderTexture( nativeBufPTr, renderTex.width, renderTex.height);
+        // Only for the color attachment set the renderBufferPtr
+        //SetRenderTexture(nativeBufPTr);
+        GameObject sphere = GameObject.Find("Sphere");
+        sphere.transform.rotation = Quaternion.Euler(0.0f, 180.0f, 0.0f);
+        sphere.GetComponent<Renderer>().material.mainTexture = renderTex;
     }
 
     private void SendMeshBuffersToPlugin()

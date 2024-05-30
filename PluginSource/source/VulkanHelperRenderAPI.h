@@ -5,6 +5,7 @@
 #include <stddef.h>
 
 #if defined (_WIN32)
+#include <windows.h>
 //#include <vulkan/vulkan_win32.h>
 #elif defined(__ANDROID__)
 //#include <vulkan/vulkan_android.h>
@@ -26,7 +27,7 @@ public:
 	virtual void CreateVulkanInstance();
 	virtual void LoadVulkanFnPtrs();
 	virtual void CreateVulkanDevice();
-	virtual void CreateVulkanImage();
+	virtual void CreateVulkanImage(unsigned int width, unsigned int height, HANDLE* handle);
 };
 
 
