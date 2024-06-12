@@ -9,6 +9,7 @@
   </component>
   <component name="HighlightingSettingsPerFile">
     <setting file="file://$APPLICATION_CONFIG_DIR$/resharper-host/DecompilerCache/decompiler/cd14705e8f094afcb566740ab5e8c02d1a2c00/34/f88d3a3d/RenderTexture.cs" root0="SKIP_HIGHLIGHTING" />
+    <setting file="file://$APPLICATION_CONFIG_DIR$/resharper-host/DecompilerCache/decompiler/cd14705e8f094afcb566740ab5e8c02d1a2c00/86/8ecfbd0b/Texture2D.cs" root0="SKIP_HIGHLIGHTING" />
   </component>
   <component name="ProjectId" id="2gi7pJyDQXFwomFGGH0YVErIY78" />
   <component name="ProjectViewState">
@@ -77,6 +78,8 @@
       <updated>1716168727374</updated>
       <workItem from="1716168730669" duration="3486000" />
       <workItem from="1716948180173" duration="3001000" />
+      <workItem from="1718133490774" duration="2179000" />
+      <workItem from="1718138664237" duration="1717000" />
     </task>
     <servers />
   </component>

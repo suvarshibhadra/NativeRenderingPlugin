@@ -6,14 +6,15 @@
 
 #include <assert.h>
 #include <d3d11.h>
+#include <iostream>
 #include <math.h>
 #include <vector>
 
 #include "Unity/IUnityGraphicsD3D11.h"
 
-
 #if defined(_WIN32)
 #include <windows.h>
+#pragma comment(lib, "dxgi.lib")
 #endif
 
 
@@ -34,36 +35,22 @@ extern "C" void	UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginLoad(IUnit
 	s_Graphics = s_UnityInterfaces->Get<IUnityGraphics>();
 	s_Graphics->RegisterDeviceEventCallback(OnGraphicsDeviceEvent);
 
-	/*
-	// Not nessary since I'm not going to hook to anything
-#if SUPPORT_VULKAN
-	if (s_Graphics->GetRenderer() == kUnityGfxRendererNull)
-	{
-		// This stores the address of vkGetInstanceProcAddr
-		// Calls UnityVulkanInterface->InterceptInitialization with hook fn ptr
-		extern void RenderAPI_Vulkan_OnPluginLoad(IUnityInterfaces*);
-		RenderAPI_Vulkan_OnPluginLoad(unityInterfaces);
-	}
-#endif // SUPPORT_VULKAN
-*/
-
 	// Run OnGraphicsDeviceEvent(initialize) manually on plugin load
 	OnGraphicsDeviceEvent(kUnityGfxDeviceEventInitialize);
 }
 
 // Plugin Unload
-extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload()
-{
+extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload() {
 	s_Graphics->UnregisterDeviceEventCallback(OnGraphicsDeviceEvent);
 }
-
 
 // --------------------------------------------------------------------------
 // GraphicsDeviceEvent
 
 static ID3D11Device* s_d3d11Device = nullptr;
+static int s_unitySelectedDX11DeviceId = -1;
 static RenderAPI* s_DX11_API = NULL;
-static VulkanHelperRenderAPI* s_VulkanHelperAPI = NULL;
+static RenderAPI_VulkanDX11* s_VulkanHelperAPI = NULL;
 static UnityGfxRenderer s_DeviceType = kUnityGfxRendererNull;
 extern RenderAPI* CreateRenderAPI_D3D11();
 
@@ -83,7 +70,20 @@ static void UNITY_INTERFACE_API OnGraphicsDeviceEvent(UnityGfxDeviceEventType ev
 		if (IUnityGraphicsD3D11* d3d11Interface = s_UnityInterfaces->Get<IUnityGraphicsD3D11>()){
 			s_d3d11Device = d3d11Interface->GetDevice();
 		}
-				
+
+		// Note the Device Id of the device selected by Unity
+		IDXGIDevice* dxgiDevice;
+		if (SUCCEEDED(s_d3d11Device->QueryInterface(IID_PPV_ARGS(&dxgiDevice)))) {
+			IDXGIAdapter* dxgiAdapter;
+			if (SUCCEEDED(dxgiDevice->GetAdapter(&dxgiAdapter))) {
+				DXGI_ADAPTER_DESC desc;
+				dxgiAdapter->GetDesc(&desc);
+				s_unitySelectedDX11DeviceId = static_cast<int>(desc.DeviceId);
+				dxgiAdapter->Release();
+			}
+			dxgiDevice->Release();
+		}
+		
 		s_DX11_API = CreateRenderAPI_D3D11();
 		s_VulkanHelperAPI = CreateRenderAPI_VulkanDX11();
 
@@ -92,7 +92,6 @@ static void UNITY_INTERFACE_API OnGraphicsDeviceEvent(UnityGfxDeviceEventType ev
 			s_VulkanHelperAPI->CreateVulkanInstance();
 			// Vulkan Fn Pts and Device Creation in ProcessDeviceEvent(Init)
 		}
-
 	}
 
 	// Let the implementation process the device related events
@@ -101,6 +100,9 @@ static void UNITY_INTERFACE_API OnGraphicsDeviceEvent(UnityGfxDeviceEventType ev
 	}
 
 	if (s_VulkanHelperAPI)	{
+		if (s_unitySelectedDX11DeviceId != -1) {
+			s_VulkanHelperAPI->SetUnitySelectedDeviceId(s_unitySelectedDX11DeviceId);
+		}
 		s_VulkanHelperAPI->ProcessDeviceEvent(eventType, s_UnityInterfaces);
 	}
 
@@ -129,26 +131,20 @@ static void UNITY_INTERFACE_API OnRenderEvent(int eventID)
 	if (s_DX11_API == NULL)
 		return;
 
-	if (eventID == 1)
-	{
-		drawToRenderTexture();
-		DrawColoredTriangle();
+	if (eventID == 1) {
+		//drawToRenderTexture();
+		//DrawColoredTriangle();
 		ModifyTexturePixels();
 		ModifyVertexBuffer();
 	}
 
-	if (eventID == 2)
-	{
+	if (eventID == 2) {
 		drawToPluginTexture();
 	}
-
 }
 
 // Return to Unity the Per-Frame Callback
-extern "C" UnityRenderingEvent UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API GetRenderEventFunc()
-{
-	return OnRenderEvent;
-}
+extern "C" UnityRenderingEvent UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API GetRenderEventFunc() { return OnRenderEvent; }
 
 static float g_Time;
 extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API SetTimeFromUnity(float t) { g_Time = t; }
@@ -170,17 +166,25 @@ extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API SetTextureFromUnity(v
 	g_TextureHeight = h;
 }
 
-extern "C" __declspec(dllexport) void* CreateVkImageForUnityRenderTexture(void* renderTextureColorBufferHandle, int w, int h)
-//extern "C" void* UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API CreateRenderTextureImageForUnity(int w, int h)
-{
-
-	#if defined(_WIN32)
+extern "C" __declspec(dllexport) void* CreateExternalVkImageForUnityTexture2D(int w, int h) {
+#if defined(_WIN32)
 	HANDLE nativeHandle;
 	if(s_VulkanHelperAPI) {
 		s_VulkanHelperAPI->CreateVulkanImage(w, h, &nativeHandle);
 
+		/*
+		// Native Memory handle
+		ID3D11Resource* pSharedResource;
+		HRESULT hr = s_d3d11Device->OpenSharedResource(nativeHandle, __uuidof(ID3D11Texture2D), (void**)&pSharedResource);
+
+		if (!(SUCCEEDED(hr))) {
+			printf("Unable to open native handle from D3D11 device");
+			// Handle error
+			return 0;
+		}
+
 		ID3D11Texture2D* d3d11Texture = nullptr;
-		HRESULT hr = s_d3d11Device->OpenSharedResource(nativeHandle, __uuidof(ID3D11Texture2D), (void**)&d3d11Texture);
+		HRESULT hr = pSharedResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&d3d11Texture);
 
 		if (FAILED(hr)) {
 			printf("Unable to open native handle from D3D11 device");
@@ -188,14 +192,22 @@ extern "C" __declspec(dllexport) void* CreateVkImageForUnityRenderTexture(void* 
 			return 0;
 		}
 
-		// Need to pass the D3D11 Handle to Texture2.CreateExternalTexture
+		*/
 
-		// Then Graphics.Blit from Texture2D to RenderTexture in Unity.
+		// Docs: https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11device-opensharedresource
+		ID3D11Texture2D* d3d11Texture = nullptr;
+		HRESULT hr = s_d3d11Device->OpenSharedResource(nativeHandle, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&d3d11Texture));
 
+		if (FAILED(hr)) {
+			printf("Unable to open native handle from D3D11 device");
+			// Handle error
+			return 0;
+		}
+		
 	}
+	// Return Texture Ptr to Unity to create Texture2D with external ptr
 	return nativeHandle;
 #endif
-
 }
 
 

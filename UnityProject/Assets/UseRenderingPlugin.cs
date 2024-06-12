@@ -2,6 +2,7 @@ using UnityEngine;
 using System;
 using System.Collections;
 using System.Runtime.InteropServices;
+using UnityEngine.Assertions;
 using UnityEngine.Rendering;
 
 
@@ -13,161 +14,83 @@ public class UseRenderingPlugin : MonoBehaviour
     // For this example, we'll call into plugin's SetTimeFromUnity
     // function and pass the current time so the plugin can animate.
 
-#if (PLATFORM_IOS || PLATFORM_TVOS || PLATFORM_BRATWURST || PLATFORM_SWITCH) && !UNITY_EDITOR
-    [DllImport("__Internal")]
-#else
     [DllImport("RenderingPlugin")]
-#endif
     private static extern void SetTimeFromUnity(float t);
 
-
-    // We'll also pass native pointer to a texture in Unity.
-    // The plugin will fill texture data from native code.
-#if (PLATFORM_IOS || PLATFORM_TVOS || PLATFORM_BRATWURST || PLATFORM_SWITCH) && !UNITY_EDITOR
-    [DllImport("__Internal")]
-#else
     [DllImport("RenderingPlugin")]
-#endif
-    private static extern void SetTextureFromUnity(System.IntPtr texture, int w, int h);
-
-    // We'll pass native pointer to the mesh vertex buffer.
-    // Also passing source unmodified mesh data.
-    // The plugin will fill vertex data from native code.
-#if (PLATFORM_IOS || PLATFORM_TVOS || PLATFORM_BRATWURST || PLATFORM_SWITCH) && !UNITY_EDITOR
-    [DllImport("__Internal")]
-#else
-    [DllImport("RenderingPlugin")]
-#endif
     private static extern void SetMeshBuffersFromUnity(IntPtr vertexBuffer, int vertexCount, IntPtr sourceVertices, IntPtr sourceNormals, IntPtr sourceUVs);
 
-#if (PLATFORM_IOS || PLATFORM_TVOS || PLATFORM_BRATWURST || PLATFORM_SWITCH) && !UNITY_EDITOR
-    [DllImport("__Internal")]
-#else
     [DllImport("RenderingPlugin")]
-#endif
     private static extern IntPtr GetRenderEventFunc();
 
-#if PLATFORM_SWITCH && !UNITY_EDITOR
-    [DllImport("__Internal")]
-    private static extern void RegisterPlugin();
-#endif
-
-    // DX12 plugin has a few additional exported functions
-
-#if (UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN || UNITY_WSA || UNITY_WSA_10_0)
     [DllImport("RenderingPlugin")]
-    private static extern IntPtr GetRenderTexture();
-
-    [DllImport("RenderingPlugin")]
-    private static extern void SetRenderTexture(IntPtr rb);
-
-    [DllImport("RenderingPlugin")]
-    private static extern bool IsSwapChainAvailable();
-
-    [DllImport("RenderingPlugin")]
-    private static extern uint GetPresentFlags();
-
-    [DllImport("RenderingPlugin")]
-    private static extern uint GetBackBufferWidth();
-
-    [DllImport("RenderingPlugin")]
-    private static extern uint GetSyncInterval();
-
-    [DllImport("RenderingPlugin")]
-    private static extern uint GetBackBufferHeight();
-
-    [DllImport("RenderingPlugin")]
-    private static extern IntPtr CreateVkImageForUnityRenderTexture(IntPtr renderTextureColorBuffer, int width, int height);
+    private static extern IntPtr CreateExternalVkImageForUnityTexture2D(int width, int height);
 
     private static RenderTexture renderTex;
+    private static Texture2D texture2D;
     private static GameObject pluginInfo;
 
-    private void CreateRenderTexture()
-    {
-        renderTex = new RenderTexture(256, 256, 16, RenderTextureFormat.ARGB32);
-        renderTex.Create();
-        // Only for the color attachment set the renderBufferPtr
-        IntPtr nativeBufPTr = renderTex.colorBuffer.GetNativeRenderBufferPtr();
-        SetRenderTexture(nativeBufPTr);
-        GameObject sphere = GameObject.Find("Sphere");
-        sphere.transform.rotation = Quaternion.Euler(0.0f, 180.0f, 0.0f);
-        sphere.GetComponent<Renderer>().material.mainTexture = renderTex;
-    }
-
-#else
-    private void CreateRenderTexture() { }
-    private void SetRenderTexture(IntPtr rb) { }
-#endif
-
-    IEnumerator Start()
-    {
-#if PLATFORM_SWITCH && !UNITY_EDITOR
-        RegisterPlugin();
-#endif
-
-        /*
-        if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D11)
-        {
-            CreateRenderTexture();
-        }
-        */
-
+    IEnumerator Start() {
         if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D11) {
-            CreateRenderTextureWithVulkanCreatedImage();
+            CreateTexture2DWithVulkanCreatedImage();
         }
 
-
-        CreateTextureAndPassToPlugin();
         SendMeshBuffersToPlugin();
         yield return StartCoroutine("CallPluginAtEndOfFrames");
     }
 
-    void OnDisable()
-    {
-        if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D11)
-        {
-            // Signals the plugin that renderTex will be destroyed
-            SetRenderTexture(IntPtr.Zero);
+    // custom "time" for deterministic results
+    int updateTimeCounter = 0;
+    private IEnumerator CallPluginAtEndOfFrames() {
+        while (true) {
+            // Wait until all frame rendering is done
+            yield return new WaitForEndOfFrame();
+
+            ++updateTimeCounter;
+            SetTimeFromUnity((float)updateTimeCounter * 0.016f);
+
+            // Draw to Texture2D
+            GL.IssuePluginEvent(GetRenderEventFunc(), 2);
         }
     }
 
-    private void CreateTextureAndPassToPlugin()
-    {
-        // Create a texture
-        Texture2D tex = new Texture2D(256, 256, TextureFormat.ARGB32, false);
-        // Set point filtering just so we can see the pixels clearly
-        tex.filterMode = FilterMode.Point;
-        // Call Apply() so it's actually uploaded to the GPU
-        tex.Apply();
+    private void CreateTexture2DWithVulkanCreatedImage() {
+
+        // Native call to retrieve handle of VkImage created by Vulkan and shared with DX11
+        IntPtr externalTexturePtr = CreateExternalVkImageForUnityTexture2D(256, 256);
+
+        // Create a Texture 2D
+        texture2D = Texture2D.CreateExternalTexture(256, 256, TextureFormat.ARGB32, false, false, externalTexturePtr);
+        IntPtr texture2DIntPtr = texture2D.GetNativeTexturePtr();
+
+        // Verify the texture pointers are indeed the same
+        Assert.IsTrue(texture2DIntPtr == externalTexturePtr);
 
         // Set texture onto our material
-        GetComponent<Renderer>().material.mainTexture = tex;
+        GetComponent<Renderer>().material.mainTexture = texture2D;
 
-        // Pass texture pointer to the plugin
-        SetTextureFromUnity(tex.GetNativeTexturePtr(), tex.width, tex.height);
-    }
-
-    private void CreateRenderTextureWithVulkanCreatedImage() {
-
+        // Create a RenderTexture
         renderTex = new RenderTexture(256, 256, 16, RenderTextureFormat.ARGB32);
         renderTex.Create();
-        IntPtr nativeBufPTr = renderTex.colorBuffer.GetNativeRenderBufferPtr();
-        IntPtr vulkanCreatedImage = CreateVkImageForUnityRenderTexture( nativeBufPTr, renderTex.width, renderTex.height);
-        // Only for the color attachment set the renderBufferPtr
-        //SetRenderTexture(nativeBufPTr);
+
+        // Show the RenderTexture on the sphere
         GameObject sphere = GameObject.Find("Sphere");
         sphere.transform.rotation = Quaternion.Euler(0.0f, 180.0f, 0.0f);
         sphere.GetComponent<Renderer>().material.mainTexture = renderTex;
     }
 
-    private void SendMeshBuffersToPlugin()
-    {
+    void OnDisable()  {
+        if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D11) {
+            // Signals to the plugin that renderTex will be destroyed
+        }
+    }
+
+    private void SendMeshBuffersToPlugin()  {
         var filter = GetComponent<MeshFilter>();
         var mesh = filter.mesh;
 
         // This is equivalent to MeshVertex in RenderingPlugin.cpp
-        var desiredVertexLayout = new[]
-        {
+        var desiredVertexLayout = new[]  {
             new VertexAttributeDescriptor(VertexAttribute.Position, VertexAttributeFormat.Float32, 3),
             new VertexAttributeDescriptor(VertexAttribute.Normal, VertexAttributeFormat.Float32, 3),
             new VertexAttributeDescriptor(VertexAttribute.Color, VertexAttributeFormat.Float32, 4),
@@ -199,39 +122,5 @@ public class UseRenderingPlugin : MonoBehaviour
         gcVertices.Free();
         gcNormals.Free();
         gcUV.Free();
-    }
-
-    // custom "time" for deterministic results
-    int updateTimeCounter = 0;
-
-    private IEnumerator CallPluginAtEndOfFrames()
-    {
-        while (true)
-        {
-            // Wait until all frame rendering is done
-            yield return new WaitForEndOfFrame();
-
-            // Set time for the plugin
-            // Unless it is D3D12 whose renderer is allowed to overlap with the next frame update and would cause instabilities due to no synchronization.
-            // On Switch, with multithreaded mode, setting the time for frame 1 may overlap with the render thread calling the plugin event for frame 0 resulting in the plugin writing data for frame 1 at frame 0.
-            if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Direct3D12 && SystemInfo.graphicsDeviceType != GraphicsDeviceType.Switch)
-            {
-                ++updateTimeCounter;
-                SetTimeFromUnity((float)updateTimeCounter * 0.016f);
-            }
-
-            // Issue a plugin event with arbitrary integer identifier.
-            // The plugin can distinguish between different
-            // things it needs to do based on this ID.
-            // On some backends the choice of eventID matters e.g on DX12 where
-            // eventID == 1 means the plugin callback will be called from the render thread
-            // and eventID == 2 means the callback is called from the submission thread
-            GL.IssuePluginEvent(GetRenderEventFunc(), 1);
-
-            if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12)
-            {
-                GL.IssuePluginEvent(GetRenderEventFunc(), 2);
-            }
-        }
     }
 }

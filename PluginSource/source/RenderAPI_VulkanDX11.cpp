@@ -14,7 +14,6 @@
 #include <math.h>
 
 // This plugin does not link to the Vulkan loader, easier to support multiple APIs and systems that don't have Vulkan support
-#define VK_NO_PROTOTYPES // structs will get defined but methods wont
 #include "Unity/IUnityGraphicsVulkan.h"
 
 #if defined(_WIN32)
@@ -66,152 +65,18 @@ VULKAN_DEFINE_API_FUNCPTR(vkGetInstanceProcAddr);
 UNITY_USED_VULKAN_API_FUNCTIONS(VULKAN_DEFINE_API_FUNCPTR);
 #undef VULKAN_DEFINE_API_FUNCPTR
 
-
-
-
-
 static void LoadVulkanAPI(PFN_vkGetInstanceProcAddr getInstanceProcAddr, VkInstance instance)
 {
     if (!vkGetInstanceProcAddr && getInstanceProcAddr)
         vkGetInstanceProcAddr = getInstanceProcAddr;
-
-	//if (!vkCreateInstance) vkCreateInstance = (PFN_vkCreateInstance)vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkCreateInstance");
 
 #define LOAD_VULKAN_FUNC(fn) if (!fn) fn = (PFN_##fn)vkGetInstanceProcAddr(instance, #fn)
     UNITY_USED_VULKAN_API_FUNCTIONS(LOAD_VULKAN_FUNC);
 #undef LOAD_VULKAN_FUNC
 }
 
-#if defined(_WIN32)
-
-#endif
-
-
-/*
-static VKAPI_ATTR void VKAPI_CALL Hook_vkCmdBeginRenderPass(VkCommandBuffer commandBuffer, const VkRenderPassBeginInfo* pRenderPassBegin, VkSubpassContents contents)
-{
-    // Change this to 'true' to override the clear color with green
-	const bool allowOverrideClearColor = false;
-    if (pRenderPassBegin->clearValueCount <= 16 && pRenderPassBegin->clearValueCount > 0 && allowOverrideClearColor)
-    {
-        VkClearValue clearValues[16] = {};
-        memcpy(clearValues, pRenderPassBegin->pClearValues, pRenderPassBegin->clearValueCount * sizeof(VkClearValue));
-
-        VkRenderPassBeginInfo patchedBeginInfo = *pRenderPassBegin;
-        patchedBeginInfo.pClearValues = clearValues;
-        for (unsigned int i = 0; i < pRenderPassBegin->clearValueCount - 1; ++i)
-        {
-            clearValues[i].color.float32[0] = 0.0;
-            clearValues[i].color.float32[1] = 1.0;
-            clearValues[i].color.float32[2] = 0.0;
-            clearValues[i].color.float32[3] = 1.0;
-        }
-        vkCmdBeginRenderPass(commandBuffer, &patchedBeginInfo, contents);
-    }
-    else
-    {
-        vkCmdBeginRenderPass(commandBuffer, pRenderPassBegin, contents);
-    }
-}
-
-static VKAPI_ATTR VkResult VKAPI_CALL Hook_vkCreateInstance(const VkInstanceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkInstance* pInstance)
-{
-    vkCreateInstance = (PFN_vkCreateInstance)vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkCreateInstance");
-    VkResult result = vkCreateInstance(pCreateInfo, pAllocator, pInstance);
-    if (result == VK_SUCCESS)
-        LoadVulkanAPI(vkGetInstanceProcAddr, *pInstance);
- 
-    return result;
-}
-
-static int FindMemoryTypeIndex(VkPhysicalDeviceMemoryProperties const & physicalDeviceMemoryProperties, VkMemoryRequirements const & memoryRequirements, VkMemoryPropertyFlags memoryPropertyFlags)
-{
-    uint32_t memoryTypeBits = memoryRequirements.memoryTypeBits;
-
-    // Search memtypes to find first index with those properties
-    for (uint32_t memoryTypeIndex = 0; memoryTypeIndex < VK_MAX_MEMORY_TYPES; ++memoryTypeIndex)
-    {
-        if ((memoryTypeBits & 1) == 1)
-        {
-            // Type is available, does it match user properties?
-            if ((physicalDeviceMemoryProperties.memoryTypes[memoryTypeIndex].propertyFlags & memoryPropertyFlags) == memoryPropertyFlags)
-                return memoryTypeIndex;
-        }
-        memoryTypeBits >>= 1;
-    }
-
-    return -1;
-}
-*/
-
-static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL Hook_vkGetInstanceProcAddr(VkInstance device, const char* funcName)
-{
-    if (!funcName)
-        return NULL;
-
-#define INTERCEPT(fn) if (strcmp(funcName, #fn) == 0) return (PFN_vkVoidFunction)&Hook_##fn
-    //INTERCEPT(vkCreateInstance);
-#undef INTERCEPT
-
-    return NULL;
-}
-
-static PFN_vkGetInstanceProcAddr UNITY_INTERFACE_API InterceptVulkanInitialization(PFN_vkGetInstanceProcAddr getInstanceProcAddr, void*)
-{
-    vkGetInstanceProcAddr = getInstanceProcAddr;
-    return Hook_vkGetInstanceProcAddr;
-}
-
-/*
-extern "C" void RenderAPI_Vulkan_OnPluginLoad(IUnityInterfaces* interfaces)
-{
-    if (IUnityGraphicsVulkanV2* vulkanInterface = interfaces->Get<IUnityGraphicsVulkanV2>())
-        vulkanInterface->AddInterceptInitialization(InterceptVulkanInitialization, NULL, 0);
-    else if (IUnityGraphicsVulkan* vulkanInterface = interfaces->Get<IUnityGraphicsVulkan>())
-        vulkanInterface->InterceptInitialization(InterceptVulkanInitialization, NULL);
-}
-*/
-
-struct VulkanBuffer
-{
-    VkBuffer buffer;
-    VkDeviceMemory deviceMemory;
-    void* mapped;
-    VkDeviceSize sizeInBytes;
-    VkDeviceSize deviceMemorySize;
-    VkMemoryPropertyFlags deviceMemoryFlags;
-};
-
-
-
-class RenderAPI_VulkanDX11 final : public VulkanHelperRenderAPI
-{
-public:
-    RenderAPI_VulkanDX11();
-    virtual ~RenderAPI_VulkanDX11() { }
-
-    virtual void ProcessDeviceEvent(UnityGfxDeviceEventType type, IUnityInterfaces* interfaces);
-    virtual bool GetUsesReverseZ() { return true; }
-
-
-private:
-    typedef std::vector<VulkanBuffer> VulkanBuffers;
-    typedef std::map<unsigned long long, VulkanBuffers> DeleteQueue;
-
-private:
-    IUnityGraphicsVulkan* m_UnityVulkan;
-    UnityVulkanInstance m_Instance;
-    VulkanBuffer m_TextureStagingBuffer;
-    VulkanBuffer m_VertexStagingBuffer;
-    std::map<unsigned long long, VulkanBuffers> m_DeleteQueue;
-    VkPipelineLayout m_TrianglePipelineLayout;
-    VkPipeline m_TrianglePipeline;
-    VkRenderPass m_TrianglePipelineRenderPass;
-};
-
-
 //PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = nullptr;
-void VulkanHelperRenderAPI::LoadVulkanSharedLibrary()
+void RenderAPI_VulkanDX11::LoadVulkanSharedLibrary()
 {
 #if defined _WIN32
     HMODULE vulkan_library = LoadLibrary("vulkan-1.dll");
@@ -229,7 +94,7 @@ static VkInstance s_vkInstance;
 static VkPhysicalDevice s_vkPhysicalDevice;
 static VkDevice s_vkDevice;
 
-void VulkanHelperRenderAPI::CreateVulkanInstance()
+void RenderAPI_VulkanDX11::CreateVulkanInstance()
 {
     PFN_vkEnumerateInstanceExtensionProperties vkEnumerateInstanceExtensionProperties = (PFN_vkEnumerateInstanceExtensionProperties)vkGetInstanceProcAddr(nullptr, "vkEnumerateInstanceExtensionProperties");
     PFN_vkEnumerateInstanceLayerProperties vkEnumerateInstanceLayerProperties = (PFN_vkEnumerateInstanceLayerProperties)vkGetInstanceProcAddr(nullptr, "vkEnumerateInstanceLayerProperties");
@@ -279,7 +144,7 @@ void VulkanHelperRenderAPI::CreateVulkanInstance()
     printf("VkResult : %d", result);
 }
 
-void VulkanHelperRenderAPI::LoadVulkanFnPtrs()
+void RenderAPI_VulkanDX11::LoadVulkanFnPtrs()
 {
 }
 
@@ -307,7 +172,7 @@ bool EnumerateAvailablePhysicalDevices(VkInstance instance,
     return true;
 }
 
-void VulkanHelperRenderAPI::CreateVulkanDevice()
+void RenderAPI_VulkanDX11::CreateVulkanDevice()
 {
     VkPhysicalDevice selectedPhysicalDevice = {};
     int gfxQueueFamilyIndexOfSelectedDevice = -1;
@@ -373,6 +238,16 @@ void VulkanHelperRenderAPI::CreateVulkanDevice()
             }
         }
 
+        // Should match 
+        if (m_unitySelectedDeviceId != -1) {
+            // This is the Device that Unity Selected
+            if (device_properties.deviceID != m_unitySelectedDeviceId) {
+                std::cout << "Not the physical device selected by Unity will not be able to share external memory." << std::endl;
+                continue;
+            }
+            std::cout << "Matches with Unity Selection" << std::endl;
+        }
+
         // Reaching here means passing all the VkPhysicalDevice checks so select this device
         selectedPhysicalDevice = physicalDevice;
         gfxQueueFamilyIndexOfSelectedDevice = queueFamilyIdxWithGraphicsCapability;
@@ -429,12 +304,13 @@ uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, V
 }
 
 
-void VulkanHelperRenderAPI::CreateVulkanImage(unsigned int width, unsigned int height, HANDLE* handle)
+void RenderAPI_VulkanDX11::CreateVulkanImage(unsigned int width, unsigned int height, HANDLE* handle)
 {
     // Get Image Format Properties supported by Physical Device
     VkPhysicalDeviceExternalImageFormatInfo externalImageFormatInfo = {};
     externalImageFormatInfo.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO;
-    externalImageFormatInfo.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHR;
+    // Question: Should this be VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHR or VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT ?
+    externalImageFormatInfo.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT;
 
     VkPhysicalDeviceImageFormatInfo2 imageFormatInfo = {};
     imageFormatInfo.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2;
@@ -447,8 +323,8 @@ void VulkanHelperRenderAPI::CreateVulkanImage(unsigned int width, unsigned int h
 
     VkExternalImageFormatProperties externalImageFormatProperties = {};
     externalImageFormatProperties.sType = VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES;
-
-    VkImageFormatProperties2 imageFormatProperties = {};
+    
+	VkImageFormatProperties2 imageFormatProperties = {};
     imageFormatProperties.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
     imageFormatProperties.pNext = &externalImageFormatProperties;
 
@@ -476,8 +352,8 @@ void VulkanHelperRenderAPI::CreateVulkanImage(unsigned int width, unsigned int h
     // Enable external memory handle types
     VkExternalMemoryImageCreateInfo externalMemoryImageInfo = {};
     externalMemoryImageInfo.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
-    // Note the handle type
-    externalMemoryImageInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHR;
+    // NB. The handle types includes VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT
+    externalMemoryImageInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHR | VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT;
     imageInfo.pNext = &externalMemoryImageInfo;
 
     VkImage image;
@@ -494,7 +370,8 @@ void VulkanHelperRenderAPI::CreateVulkanImage(unsigned int width, unsigned int h
     // Enable export memory handle
     VkExportMemoryAllocateInfo exportAllocInfo = {};
     exportAllocInfo.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
-    exportAllocInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHR;
+    // NB. The handle types includes VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT
+    exportAllocInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHR | VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT;
     allocInfo.pNext = &exportAllocInfo;
 
     VkDeviceMemory imageMemory;
@@ -506,20 +383,30 @@ void VulkanHelperRenderAPI::CreateVulkanImage(unsigned int width, unsigned int h
     VkMemoryGetWin32HandleInfoKHR getWin32HandleInfo = {};
     getWin32HandleInfo.sType = VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR;
     getWin32HandleInfo.memory = imageMemory;
-    getWin32HandleInfo.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+    // NB. The handle type (singular) takes VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT
+    getWin32HandleInfo.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT;
 
-    if (vkGetMemoryWin32HandleKHR(s_vkDevice, &getWin32HandleInfo, handle) != VK_SUCCESS) {
+    HANDLE externalHandle;
+    if (vkGetMemoryWin32HandleKHR(s_vkDevice, &getWin32HandleInfo, &externalHandle) != VK_SUCCESS) {
         std::cout << "Error in obtaining memory handle: ";
     }
 
+    *handle = externalHandle;
+
     // You can now pass this handle to other processes or Vulkan instances/devices
+    // Someone has to call CloseHandle
+    
 
     std::cout << "Memory handle exported as Win32 handle: " << handle << std::endl;
-
 }
 
 
-VulkanHelperRenderAPI* CreateRenderAPI_VulkanDX11()
+void RenderAPI_VulkanDX11::SetUnitySelectedDeviceId(int unitySelectedDeviceId)
+{
+    m_unitySelectedDeviceId = unitySelectedDeviceId;
+}
+
+RenderAPI_VulkanDX11* CreateRenderAPI_VulkanDX11()
 {
     return new RenderAPI_VulkanDX11();
 }
