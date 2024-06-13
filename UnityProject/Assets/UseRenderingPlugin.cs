@@ -56,11 +56,14 @@ public class UseRenderingPlugin : MonoBehaviour
 
     private void CreateTexture2DWithVulkanCreatedImage() {
 
+        int width = 256;
+        int height = 256;
+
         // Native call to retrieve handle of VkImage created by Vulkan and shared with DX11
-        IntPtr externalTexturePtr = CreateExternalVkImageForUnityTexture2D(256, 256);
+        IntPtr externalTexturePtr = CreateExternalVkImageForUnityTexture2D(width, height);
 
         // Create a Texture 2D
-        texture2D = Texture2D.CreateExternalTexture(256, 256, TextureFormat.ARGB32, false, false, externalTexturePtr);
+        texture2D = Texture2D.CreateExternalTexture(width, height, TextureFormat.RGBA32, false, false, externalTexturePtr);
         IntPtr texture2DIntPtr = texture2D.GetNativeTexturePtr();
 
         // Verify the texture pointers are indeed the same
